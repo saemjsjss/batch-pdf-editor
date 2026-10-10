@@ -10,7 +10,16 @@ export interface RegionRect {
   fontSize: number
 }
 
-export type PreviewMode = 'click' | 'draw' | 'text' | 'place'
+export type PreviewMode = 'click' | 'draw' | 'text' | 'place' | 'move'
+
+/** pending move-area edit for live preview */
+export interface PendingMove {
+  rect: RegionRect
+  dx: number
+  dy: number
+  /** css color for the covered areas */
+  bg: string
+}
 
 interface Props {
   fileId: string
@@ -21,8 +30,10 @@ interface Props {
   edits: EditOp[]
   /** result-preview mode: render only, no selection/drawing */
   readonly?: boolean
-  /** pending edit rect — shown as a dashed pink box; draggable/resizable in draw/place mode */
+  /** pending edit rect — shown as a dashed pink box; draggable/resizable in draw/place/move mode */
   pendingRect?: RegionRect | null
+  /** pending move-area edit — the real content shifts live on the canvas */
+  pendingMove?: PendingMove | null
   /** place mode: click point in user space (center of the square to place) */
   onPlacePoint?: (cx: number, cy: number) => void
   /** draw/place mode: pending box moved or resized (user space, y = bottom edge) */
@@ -98,6 +109,7 @@ export default function PdfPreview({
   edits,
   readonly = false,
   pendingRect = null,
+  pendingMove = null,
   onPlacePoint,
   onPendingMove,
   onEditDragStart,
@@ -115,6 +127,9 @@ export default function PdfPreview({
   const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** untouched copy of the rendered page, for live move-area compositing */
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [baseTick, setBaseTick] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -143,6 +158,13 @@ export default function PdfPreview({
         renderTask = pg.render({ canvas, canvasContext: ctx, viewport })
         await renderTask.promise
         if (cancelled) return
+        // keep an untouched copy so move-area previews can re-composite
+        const base = document.createElement('canvas')
+        base.width = canvas.width
+        base.height = canvas.height
+        base.getContext('2d')!.drawImage(canvas, 0, 0)
+        baseCanvasRef.current = base
+        setBaseTick((t) => t + 1)
         stage = 'extract text'
         const r = await extractSpans(doc, page, scale)
         if (cancelled) return
@@ -173,8 +195,60 @@ export default function PdfPreview({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
+  /** all move-area operations on this page (committed + pending), in user space */
+  const moveOps = [
+    ...edits
+      .filter((e) => e.type === 'move' && e.page === page)
+      .map((e) => ({
+        x: e.x,
+        y: e.y,
+        w: e.w,
+        h: e.h,
+        dx: e.dx ?? 0,
+        dy: e.dy ?? 0,
+        bg: `rgb(${e.bg.r},${e.bg.g},${e.bg.b})`,
+      })),
+    ...(pendingMove
+      ? [
+          {
+            x: pendingMove.rect.x,
+            y: pendingMove.rect.y,
+            w: pendingMove.rect.w,
+            h: pendingMove.rect.h,
+            dx: pendingMove.dx,
+            dy: pendingMove.dy,
+            bg: pendingMove.bg,
+          },
+        ]
+      : []),
+  ]
+
+  // live move-area preview: re-composite the page with the content shifted
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const base = baseCanvasRef.current
+    if (!canvas || !base) return
+    if (base.width !== canvas.width || base.height !== canvas.height) return
+    const ctx = canvas.getContext('2d')!
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(base, 0, 0)
+    for (const m of moveOps) {
+      const sx = m.x * scale
+      const sw = m.w * scale
+      const sh = m.h * scale
+      const syTop = (pageH - m.y - m.h) * scale
+      const dxPx = m.dx * scale
+      const dyPx = -m.dy * scale
+      ctx.fillStyle = m.bg
+      ctx.fillRect(sx, syTop, sw, sh)
+      ctx.fillRect(sx + dxPx, syTop + dyPx, sw, sh)
+      ctx.drawImage(base, sx, syTop, sw, sh, sx + dxPx, syTop + dyPx, sw, sh)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseTick, edits, pendingMove, scale, page, pageH])
+
   const onPointerDown = (e: React.PointerEvent) => {
-    if (readonly || mode !== 'draw') return
+    if (readonly || (mode !== 'draw' && mode !== 'move')) return
     const p = localPos(e)
     setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
@@ -232,7 +306,7 @@ export default function PdfPreview({
   } | null>(null)
   const suppressPlaceClick = useRef(false)
 
-  const boxInteractive = mode === 'place' || mode === 'draw'
+  const boxInteractive = mode === 'place' || mode === 'draw' || mode === 'move'
 
   const onBoxPointerDown = (e: React.PointerEvent, kind: 'move' | 'resize') => {
     if (readonly || !boxInteractive || !pendingRect) return
@@ -291,7 +365,7 @@ export default function PdfPreview({
     e.stopPropagation()
   }
 
-  const pageEdits = edits.filter((e) => e.page === page)
+  const pageEdits = edits.filter((e) => e.page === page && e.type !== 'move')
 
   return (
     <div className="inline-block relative bg-white shadow-md" ref={wrapRef}>
@@ -309,7 +383,7 @@ export default function PdfPreview({
       {/* overlay layer */}
       <div
         className={`absolute inset-0 ${
-          mode === 'draw'
+          mode === 'draw' || mode === 'move'
             ? 'cursor-crosshair'
             : mode === 'text'
               ? 'cursor-text'
@@ -378,6 +452,22 @@ export default function PdfPreview({
             )}
           </div>
         )}
+        {moveOps.map((m, i) => (
+          <div
+            key={`mv-${i}`}
+            className="absolute border-2 border-dashed pointer-events-none"
+            style={{
+              borderColor: '#E84A8A',
+              background: 'rgba(232,74,138,0.08)',
+              left: (m.x + m.dx) * scale,
+              top: (pageH - (m.y + m.dy) - m.h) * scale,
+              width: m.w * scale,
+              height: m.h * scale,
+              zIndex: 6,
+            }}
+            title="Content moves here"
+          />
+        ))}
         {pageEdits.map((e) => (
           <div
             key={e.id}

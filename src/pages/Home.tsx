@@ -22,6 +22,7 @@ import {
   FileCheck2,
   AlertCircle,
   Square,
+  Move,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -261,12 +262,40 @@ export default function Home() {
   }
 
   function handleRegionDrawn(rect: RegionRect) {
+    if (mode === 'move') {
+      // move area: the rect selects existing content to shift, not a cover box
+      startPending({ ...rect, fontSize: 11.89 }, '(move area)', true)
+      setNewText('')
+      setMoveDelta({ dx: 0, dy: 0 })
+      return
+    }
     // drawn boxes get the standard body size, not a size derived from box height,
     // and default to centered text inside the box
     startPending({ ...rect, fontSize: 11.89 }, '(custom region)', true)
     setNewText('')
     setAlign('center')
   }
+
+  /** dx/dy (pt) for the pending move-area edit; y up, so "down" = negative dy */
+  const [moveDelta, setMoveDelta] = useState({ dx: 0, dy: 0 })
+
+  // arrow-key nudging while a move-area edit is pending (1pt, Shift = 5pt)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!pending || pending.originalText !== '(move area)') return
+      const t = e.target as HTMLElement
+      if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') return
+      const step = e.shiftKey ? 5 : 1
+      if (e.key === 'ArrowLeft') setMoveDelta((d) => ({ ...d, dx: d.dx - step }))
+      else if (e.key === 'ArrowRight') setMoveDelta((d) => ({ ...d, dx: d.dx + step }))
+      else if (e.key === 'ArrowUp') setMoveDelta((d) => ({ ...d, dy: d.dy + step }))
+      else if (e.key === 'ArrowDown') setMoveDelta((d) => ({ ...d, dy: d.dy - step }))
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pending])
 
   function handleTextPoint(x: number, baselineY: number) {
     const fontSize = 12
@@ -326,21 +355,42 @@ export default function Home() {
       g: parseInt(hex.slice(2, 4), 16),
       b: parseInt(hex.slice(4, 6), 16),
     }
-    commitEdits([
-      ...edits,
-      {
-        id: uid(),
-        page,
-        ...pending.rect,
-        fontSize: pending.fontSize,
-        originalText: pending.originalText,
-        newText,
-        cover: pending.cover,
-        bold,
-        align,
-        bg,
-      },
-    ])
+    if (pending.originalText === '(move area)') {
+      commitEdits([
+        ...edits,
+        {
+          id: uid(),
+          type: 'move',
+          page,
+          ...pending.rect,
+          fontSize: pending.fontSize,
+          originalText: '(move area)',
+          newText: '',
+          cover: false,
+          bold: false,
+          align: 'left',
+          bg,
+          dx: moveDelta.dx,
+          dy: moveDelta.dy,
+        },
+      ])
+    } else {
+      commitEdits([
+        ...edits,
+        {
+          id: uid(),
+          page,
+          ...pending.rect,
+          fontSize: pending.fontSize,
+          originalText: pending.originalText,
+          newText,
+          cover: pending.cover,
+          bold,
+          align,
+          bg,
+        },
+      ])
+    }
     setPending(null)
     setNewText('')
   }
@@ -409,6 +459,18 @@ export default function Home() {
   }
 
   function editKind(e: EditOp): { icon: string; title: string; desc: React.ReactNode } {
+    if (e.type === 'move') {
+      const parts: string[] = []
+      const dx = e.dx ?? 0
+      const dy = e.dy ?? 0
+      if (dx) parts.push(`${Math.abs(dx)}pt ${dx > 0 ? 'right' : 'left'}`)
+      if (dy) parts.push(`${Math.abs(dy)}pt ${dy > 0 ? 'up' : 'down'}`)
+      return {
+        icon: '↕',
+        title: `Move area · p${e.page}`,
+        desc: `${Math.round(e.w)}×${Math.round(e.h)}pt region · ${parts.join(' + ') || 'no shift yet'}`,
+      }
+    }
     if (!e.cover) {
       return {
         icon: '+',
@@ -669,6 +731,13 @@ export default function Home() {
                   <Square className="h-4 w-4" /> Place box
                 </button>
                 <button
+                  className={`pk-tool ${mode === 'move' ? 'on' : ''}`}
+                  onClick={() => setMode('move')}
+                  title="Drag a rectangle over existing content, then shift it with arrow keys or dx/dy"
+                >
+                  <Move className="h-4 w-4" /> Move area
+                </button>
+                <button
                   className={`pk-tool ${mode === 'text' ? 'on' : ''}`}
                   onClick={() => setMode('text')}
                   title="Click anywhere on the page to add new text there"
@@ -723,6 +792,11 @@ export default function Home() {
                   mode={mode}
                   edits={edits}
                   pendingRect={pending?.rect ?? null}
+                  pendingMove={
+                    pending?.originalText === '(move area)'
+                      ? { rect: pending.rect, dx: moveDelta.dx, dy: moveDelta.dy, bg: bgColor }
+                      : null
+                  }
                   onPlacePoint={handlePlacePoint}
                   onPendingMove={movePending}
                   onEditDragStart={onEditDragStart}
@@ -802,15 +876,23 @@ export default function Home() {
               <h2>
                 New edit — page {page}
                 <span className="pk-pill">
-                  {pending.cover
-                    ? pending.originalText === '(placed box)'
-                      ? 'placed box'
-                      : 'replace'
-                    : 'add text'}
+                  {pending.originalText === '(move area)'
+                    ? 'move area'
+                    : pending.cover
+                      ? pending.originalText === '(placed box)'
+                        ? 'placed box'
+                        : 'replace'
+                      : 'add text'}
                 </span>
               </h2>
               <div className="text-[13px] mb-3" style={{ color: 'var(--pk-text)' }}>
-                {pending.originalText === '(placed box)' ? (
+                {pending.originalText === '(move area)' ? (
+                  <span style={{ color: 'var(--pk-muted)' }}>
+                    Moving existing content — nudge with arrow keys (1 pt, Shift = 5 pt) or set
+                    dx/dy below. PDF y goes up: dy −3 = 3 pt down. Drag the pink box to reselect
+                    the area.
+                  </span>
+                ) : pending.originalText === '(placed box)' ? (
                   <span style={{ color: 'var(--pk-muted)' }}>
                     Box placed — drag the pink box on the page to move it, resize it from its
                     corner handle, or click elsewhere to re-place it.
@@ -831,55 +913,93 @@ export default function Home() {
                   </>
                 )}
               </div>
-              <Textarea
-                autoFocus
-                placeholder="New text (empty = erase). Multi-line is fine — text wraps automatically."
-                value={newText}
-                onChange={(e) => setNewText(e.target.value)}
-                rows={3}
-              />
-              <div className="flex items-center gap-1.5 mt-2">
-                <select
-                  className="h-8 flex-1 min-w-0 rounded-md border bg-background px-2 text-sm"
-                  value=""
-                  onChange={(e) => {
-                    const t = templates.find((x) => x.id === e.target.value)
-                    if (t) setNewText(t.text)
-                  }}
-                >
-                  <option value="" disabled>
-                    Insert template…
-                  </option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="pk-icon-btn"
-                  title="Save the current text as a reusable template"
-                  onClick={saveTemplate}
-                  disabled={!newText.trim()}
-                >
-                  <BookMarked className="h-4 w-4" />
-                </button>
-                {templates.length > 0 && (
-                  <button
-                    className="pk-icon-btn"
-                    title="Delete a template…"
-                    onClick={() => {
-                      const names = templates.map((t) => t.name).join('\n')
-                      const name = window.prompt(`Delete which template?\n${names}`)
-                      const t = templates.find((x) => x.name === name)
-                      if (t) deleteTemplate(t.id)
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
+              {pending.originalText !== '(move area)' && (
+                <>
+                  <Textarea
+                    autoFocus
+                    placeholder="New text (empty = erase). Multi-line is fine — text wraps automatically."
+                    value={newText}
+                    onChange={(e) => setNewText(e.target.value)}
+                    rows={3}
+                  />
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <select
+                      className="h-8 flex-1 min-w-0 rounded-md border bg-background px-2 text-sm"
+                      value=""
+                      onChange={(e) => {
+                        const t = templates.find((x) => x.id === e.target.value)
+                        if (t) setNewText(t.text)
+                      }}
+                    >
+                      <option value="" disabled>
+                        Insert template…
+                      </option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="pk-icon-btn"
+                      title="Save the current text as a reusable template"
+                      onClick={saveTemplate}
+                      disabled={!newText.trim()}
+                    >
+                      <BookMarked className="h-4 w-4" />
+                    </button>
+                    {templates.length > 0 && (
+                      <button
+                        className="pk-icon-btn"
+                        title="Delete a template…"
+                        onClick={() => {
+                          const names = templates.map((t) => t.name).join('\n')
+                          const name = window.prompt(`Delete which template?\n${names}`)
+                          const t = templates.find((x) => x.name === name)
+                          if (t) deleteTemplate(t.id)
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
               <div className="flex flex-wrap items-center gap-3 mt-3">
+                {pending.originalText === '(move area)' && (
+                  <>
+                    <label
+                      className="flex items-center gap-1.5 text-sm"
+                      style={{ color: 'var(--pk-muted)' }}
+                    >
+                      dx (pt)
+                      <Input
+                        type="number"
+                        step={0.5}
+                        className="w-20 h-8"
+                        value={moveDelta.dx}
+                        onChange={(e) =>
+                          setMoveDelta((d) => ({ ...d, dx: Number(e.target.value) || 0 }))
+                        }
+                      />
+                    </label>
+                    <label
+                      className="flex items-center gap-1.5 text-sm"
+                      style={{ color: 'var(--pk-muted)' }}
+                    >
+                      dy (pt)
+                      <Input
+                        type="number"
+                        step={0.5}
+                        className="w-20 h-8"
+                        value={moveDelta.dy}
+                        onChange={(e) =>
+                          setMoveDelta((d) => ({ ...d, dy: Number(e.target.value) || 0 }))
+                        }
+                      />
+                    </label>
+                  </>
+                )}
                 {pending.originalText === '(placed box)' && (
                   <label
                     className="flex items-center gap-1.5 text-sm"
@@ -900,60 +1020,64 @@ export default function Home() {
                     />
                   </label>
                 )}
-                <label
-                  className="flex items-center gap-1.5 text-sm"
-                  style={{ color: 'var(--pk-muted)' }}
-                >
-                  Size
-                  <Input
-                    type="number"
-                    min={4}
-                    max={200}
-                    className="w-20 h-8"
-                    value={pending.fontSize}
-                    onChange={(e) =>
-                      setPending((p) =>
-                        p ? { ...p, fontSize: Math.max(4, Number(e.target.value) || 4) } : p,
-                      )
-                    }
-                  />
-                </label>
-                <label
-                  className="flex items-center gap-1.5 text-sm cursor-pointer"
-                  style={{ color: 'var(--pk-muted)' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={bold}
-                    onChange={(e) => setBold(e.target.checked)}
-                    className="h-4 w-4 accent-[#E84A8A]"
-                  />
-                  <span className="font-bold">Bold</span>
-                </label>
-                <span className="flex items-center gap-0.5 rounded-md border p-0.5">
-                  {(['left', 'center', 'right'] as const).map((a) => (
-                    <button
-                      key={a}
-                      onClick={() => setAlign(a)}
-                      className={`px-2 py-0.5 text-xs rounded capitalize ${
-                        align === a ? 'text-white' : ''
-                      }`}
-                      style={
-                        align === a
-                          ? { background: 'var(--pk-primary)' }
-                          : { color: 'var(--pk-muted)' }
-                      }
+                {pending.originalText !== '(move area)' && (
+                  <>
+                    <label
+                      className="flex items-center gap-1.5 text-sm"
+                      style={{ color: 'var(--pk-muted)' }}
                     >
-                      {a === 'left' ? (
-                        <AlignLeft className="h-3.5 w-3.5" />
-                      ) : a === 'center' ? (
-                        <AlignCenter className="h-3.5 w-3.5" />
-                      ) : (
-                        <AlignRight className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  ))}
-                </span>
+                      Size
+                      <Input
+                        type="number"
+                        min={4}
+                        max={200}
+                        className="w-20 h-8"
+                        value={pending.fontSize}
+                        onChange={(e) =>
+                          setPending((p) =>
+                            p ? { ...p, fontSize: Math.max(4, Number(e.target.value) || 4) } : p,
+                          )
+                        }
+                      />
+                    </label>
+                    <label
+                      className="flex items-center gap-1.5 text-sm cursor-pointer"
+                      style={{ color: 'var(--pk-muted)' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bold}
+                        onChange={(e) => setBold(e.target.checked)}
+                        className="h-4 w-4 accent-[#E84A8A]"
+                      />
+                      <span className="font-bold">Bold</span>
+                    </label>
+                    <span className="flex items-center gap-0.5 rounded-md border p-0.5">
+                      {(['left', 'center', 'right'] as const).map((a) => (
+                        <button
+                          key={a}
+                          onClick={() => setAlign(a)}
+                          className={`px-2 py-0.5 text-xs rounded capitalize ${
+                            align === a ? 'text-white' : ''
+                          }`}
+                          style={
+                            align === a
+                              ? { background: 'var(--pk-primary)' }
+                              : { color: 'var(--pk-muted)' }
+                          }
+                        >
+                          {a === 'left' ? (
+                            <AlignLeft className="h-3.5 w-3.5" />
+                          ) : a === 'center' ? (
+                            <AlignCenter className="h-3.5 w-3.5" />
+                          ) : (
+                            <AlignRight className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      ))}
+                    </span>
+                  </>
+                )}
                 {pending.cover && (
                   <label
                     className="flex items-center gap-1.5 text-sm"
@@ -978,11 +1102,13 @@ export default function Home() {
                 </button>
               </div>
               <p className="pk-hint">
-                {pending.originalText === '(placed box)'
-                  ? 'The pink square can be dragged anywhere on the page. It covers that spot and writes your text centered inside it, at the same position in every PDF.'
-                  : pending.cover
-                    ? 'Covers the original text with the background color and writes the new text on top, at the same spot in every PDF. Text auto-shrinks to fit.'
-                    : 'Writes new text on top of the page at the clicked spot in every PDF, without covering anything.'}
+                {pending.originalText === '(move area)'
+                  ? 'Moves the selected content itself (text stays sharp and selectable) — nothing is erased or retyped. Applied at the same position in every PDF.'
+                  : pending.originalText === '(placed box)'
+                    ? 'The pink square can be dragged anywhere on the page. It covers that spot and writes your text centered inside it, at the same position in every PDF.'
+                    : pending.cover
+                      ? 'Covers the original text with the background color and writes the new text on top, at the same spot in every PDF. Text auto-shrinks to fit.'
+                      : 'Writes new text on top of the page at the clicked spot in every PDF, without covering anything.'}
               </p>
             </div>
           )}

@@ -86,6 +86,10 @@ export interface EditOp {
   align: 'left' | 'center' | 'right'
   /** cover color, 0-255 */
   bg: { r: number; g: number; b: number }
+  /** 'move': shift the existing page content of the rect by dx/dy (pt, y up). Runs before text edits. */
+  type?: 'move'
+  dx?: number
+  dy?: number
 }
 
 /** Page count via pdf-lib — cheap, no worker, safe for bulk uploads. */
@@ -223,6 +227,11 @@ function wrapText(font: PDFFont, text: string, size: number, maxW: number): stri
 /** Apply a list of edits to one PDF, return the new PDF bytes. */
 export async function applyEdits(data: ArrayBuffer, edits: EditOp[]): Promise<Uint8Array> {
   const doc = await PDFDocument.load(data.slice(0), { ignoreEncryption: true })
+  // untouched source for 'move' edits — clips are embedded from here so the
+  // original content is never degraded by covering
+  const src = edits.some((e) => e.type === 'move')
+    ? await PDFDocument.load(data.slice(0), { ignoreEncryption: true })
+    : null
   const helvetica = await doc.embedFont(StandardFonts.Helvetica)
   const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold)
   let unicodeFont: PDFFont | null = null
@@ -240,7 +249,12 @@ export async function applyEdits(data: ArrayBuffer, edits: EditOp[]): Promise<Ui
   }
   const pages = doc.getPages()
 
-  for (const e of edits) {
+  // move edits first, then text edits
+  const ordered = [...edits].sort(
+    (a, b) => (a.type === 'move' ? 0 : 1) - (b.type === 'move' ? 0 : 1),
+  )
+
+  for (const e of ordered) {
     const page = pages[e.page - 1]
     if (!page) continue
     const { width: pw, height: ph } = page.getSize()
@@ -249,6 +263,22 @@ export async function applyEdits(data: ArrayBuffer, edits: EditOp[]): Promise<Ui
     const w = Math.min(e.w, pw - x)
     const h = Math.min(e.h, ph - y)
     if (w <= 0 || h <= 0) continue
+
+    if (e.type === 'move') {
+      if (!src) continue
+      const srcPage = src.getPage(e.page - 1)
+      if (!srcPage) continue
+      const dx = e.dx ?? 0
+      const dy = e.dy ?? 0
+      // vector-preserving clip of the untouched page content
+      const clip = await doc.embedPage(srcPage, { left: x, bottom: y, right: x + w, top: y + h })
+      const color = rgb(e.bg.r / 255, e.bg.g / 255, e.bg.b / 255)
+      // clear source AND destination, then re-draw the clip at the destination
+      page.drawRectangle({ x, y, width: w, height: h, color })
+      page.drawRectangle({ x: x + dx, y: y + dy, width: w, height: h, color })
+      page.drawPage(clip, { x: x + dx, y: y + dy, width: w, height: h })
+      continue
+    }
 
     const text = e.newText
     let font: PDFFont = helvetica
