@@ -34,6 +34,8 @@ interface Props {
   pendingRect?: RegionRect | null
   /** pending move-area edit — the real content shifts live on the canvas */
   pendingMove?: PendingMove | null
+  /** a committed move edit being re-adjusted: skip its committed shift in the preview */
+  skipMoveId?: string | null
   /** place mode: click point in user space (center of the square to place) */
   onPlacePoint?: (cx: number, cy: number) => void
   /** draw/place mode: pending box moved or resized (user space, y = bottom edge) */
@@ -110,6 +112,7 @@ export default function PdfPreview({
   readonly = false,
   pendingRect = null,
   pendingMove = null,
+  skipMoveId = null,
   onPlacePoint,
   onPendingMove,
   onEditDragStart,
@@ -198,7 +201,7 @@ export default function PdfPreview({
   /** all move-area operations on this page (committed + pending), in user space */
   const moveOps = [
     ...edits
-      .filter((e) => e.type === 'move' && e.page === page)
+      .filter((e) => e.type === 'move' && e.page === page && e.id !== skipMoveId)
       .map((e) => ({
         x: e.x,
         y: e.y,
@@ -245,7 +248,7 @@ export default function PdfPreview({
       ctx.drawImage(base, sx, syTop, sw, sh, sx + dxPx, syTop + dyPx, sw, sh)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseTick, edits, pendingMove, scale, page, pageH])
+  }, [baseTick, edits, pendingMove, skipMoveId, scale, page, pageH])
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (readonly || (mode !== 'draw' && mode !== 'move')) return

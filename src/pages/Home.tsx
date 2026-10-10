@@ -255,6 +255,7 @@ export default function Home() {
   function startPending(rect: RegionRect, originalText: string, cover: boolean) {
     setPending({ rect, fontSize: rect.fontSize, originalText, cover })
     setNewText(cover ? originalText : '')
+    setEditingId(null)
   }
 
   function handleLineClick(rect: RegionRect, text: string) {
@@ -278,6 +279,26 @@ export default function Home() {
 
   /** dx/dy (pt) for the pending move-area edit; y up, so "down" = negative dy */
   const [moveDelta, setMoveDelta] = useState({ dx: 0, dy: 0 })
+  /** when set, the composer is re-adjusting this committed move edit */
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  /** reopen a committed move-area edit for re-nudging */
+  function reopenMoveEdit(e: EditOp) {
+    const hex =
+      '#' + [e.bg.r, e.bg.g, e.bg.b].map((v) => v.toString(16).padStart(2, '0')).join('')
+    setBgColor(hex)
+    setMoveDelta({ dx: e.dx ?? 0, dy: e.dy ?? 0 })
+    setPending({
+      rect: { x: e.x, y: e.y, w: e.w, h: e.h, fontSize: e.fontSize },
+      fontSize: e.fontSize,
+      originalText: '(move area)',
+      cover: true,
+    })
+    setNewText('')
+    setEditingId(e.id)
+    setPage(e.page)
+    setMode('move')
+  }
 
   // arrow-key nudging while a move-area edit is pending (1pt, Shift = 5pt)
   useEffect(() => {
@@ -356,24 +377,23 @@ export default function Home() {
       b: parseInt(hex.slice(4, 6), 16),
     }
     if (pending.originalText === '(move area)') {
-      commitEdits([
-        ...edits,
-        {
-          id: uid(),
-          type: 'move',
-          page,
-          ...pending.rect,
-          fontSize: pending.fontSize,
-          originalText: '(move area)',
-          newText: '',
-          cover: false,
-          bold: false,
-          align: 'left',
-          bg,
-          dx: moveDelta.dx,
-          dy: moveDelta.dy,
-        },
-      ])
+      const op: EditOp = {
+        id: editingId ?? uid(),
+        type: 'move',
+        page,
+        ...pending.rect,
+        fontSize: pending.fontSize,
+        originalText: '(move area)',
+        newText: '',
+        cover: false,
+        bold: false,
+        align: 'left',
+        bg,
+        dx: moveDelta.dx,
+        dy: moveDelta.dy,
+      }
+      // update-in-place keeps undo honest: history stores the pre-update edit
+      commitEdits(editingId ? edits.map((x) => (x.id === editingId ? op : x)) : [...edits, op])
     } else {
       commitEdits([
         ...edits,
@@ -393,6 +413,7 @@ export default function Home() {
     }
     setPending(null)
     setNewText('')
+    setEditingId(null)
   }
 
   async function applyAll() {
@@ -797,6 +818,7 @@ export default function Home() {
                       ? { rect: pending.rect, dx: moveDelta.dx, dy: moveDelta.dy, bg: bgColor }
                       : null
                   }
+                  skipMoveId={editingId}
                   onPlacePoint={handlePlacePoint}
                   onPendingMove={movePending}
                   onEditDragStart={onEditDragStart}
@@ -1095,9 +1117,15 @@ export default function Home() {
               </div>
               <div className="flex gap-2 mt-3">
                 <button className="pk-btn pk-btn-primary" onClick={addEdit}>
-                  Add edit
+                  {editingId ? 'Update edit' : 'Add edit'}
                 </button>
-                <button className="pk-btn pk-btn-soft" onClick={() => setPending(null)}>
+                <button
+                  className="pk-btn pk-btn-soft"
+                  onClick={() => {
+                    setPending(null)
+                    setEditingId(null)
+                  }}
+                >
                   Cancel
                 </button>
               </div>
@@ -1121,7 +1149,17 @@ export default function Home() {
               {edits.map((e) => {
                 const k = editKind(e)
                 return (
-                  <div className="pk-edit" key={e.id}>
+                  <div
+                    className="pk-edit"
+                    key={e.id}
+                    onClick={e.type === 'move' ? () => reopenMoveEdit(e) : undefined}
+                    style={{
+                      cursor: e.type === 'move' ? 'pointer' : undefined,
+                      borderColor: editingId === e.id ? 'var(--pk-primary)' : undefined,
+                      background: editingId === e.id ? 'var(--pk-accent)' : undefined,
+                    }}
+                    title={e.type === 'move' ? 'Click to adjust dx/dy and nudge again' : undefined}
+                  >
                     <div className="pk-eicon">{k.icon}</div>
                     <div className="min-w-0">
                       <div className="pk-etitle">{k.title}</div>
@@ -1130,7 +1168,14 @@ export default function Home() {
                     <button
                       className="pk-x"
                       title="Delete edit"
-                      onClick={() => commitEdits(edits.filter((x) => x.id !== e.id))}
+                      onClick={(ev) => {
+                        ev.stopPropagation()
+                        if (editingId === e.id) {
+                          setEditingId(null)
+                          setPending(null)
+                        }
+                        commitEdits(edits.filter((x) => x.id !== e.id))
+                      }}
                     >
                       ×
                     </button>
