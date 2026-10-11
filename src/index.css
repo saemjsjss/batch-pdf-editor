@@ -588,7 +588,7 @@ body {
   flex-wrap: wrap;
   gap: 6px 16px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
 }
 .pk-credit b {
   letter-spacing: 0.04em;

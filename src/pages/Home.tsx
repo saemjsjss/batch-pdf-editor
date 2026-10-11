@@ -1328,9 +1328,8 @@ export default function Home() {
 
       <footer className="pk-credit" data-testid="credit">
         <span>
-          Created by <b>SAEMUR RAHMAN</b> — dedicated with personal time and money.
+          Created by <b>Sir SAEMUR RAHMAN</b>
         </span>
-        <span className="pk-credit-sub">Bismillah PDF Editor · Everything runs on this PC</span>
       </footer>
 
       <UnlockDialog
