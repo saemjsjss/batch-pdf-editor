@@ -21,7 +21,10 @@ interface Hashed {
 export interface LockConfig {
   v: 1
   iterations: number
-  pw: Hashed
+  /** admin password (optional — without it, the voice word alone unlocks) */
+  pw?: Hashed
+  /** lock switched off by the admin */
+  off?: boolean
   /** custom English passphrase (hashed) */
   voice?: Hashed
   /** built-in non-English passphrase, e.g. 'bismillah' (not secret — anyone may say it) */
@@ -110,18 +113,26 @@ async function matches(secret: string, h: Hashed, iterations: number) {
 export class LockError extends Error {}
 
 export function createLock(store: StorageLike, now: () => number = Date.now) {
+  /** Out of the box (nothing saved yet) Apply asks for the spoken “Bismillah”. */
+  const DEFAULT: LockConfig = { v: 1, iterations: ITERATIONS, voicePreset: 'bismillah' }
+
+  /** null = lock turned off */
   const read = (): LockConfig | null => {
     try {
       const raw = store.getItem(LOCK_KEY)
-      if (!raw) return null
+      if (!raw) return DEFAULT
       const c = JSON.parse(raw) as LockConfig
-      return c && c.v === 1 && c.pw?.hash ? c : null
+      if (!c || c.v !== 1) return DEFAULT
+      if (c.off) return null
+      return c
     } catch {
-      return null
+      return DEFAULT
     }
   }
-  const write = (c: LockConfig | null) =>
-    c ? store.setItem(LOCK_KEY, JSON.stringify(c)) : store.removeItem(LOCK_KEY)
+  const write = (c: LockConfig) => store.setItem(LOCK_KEY, JSON.stringify(c))
+  const base = (c: LockConfig | null): LockConfig => ({ v: 1, iterations: c?.iterations ?? ITERATIONS })
+  const presetOf = (c: LockConfig | null) =>
+    c?.voicePreset && VOICE_PRESETS[c.voicePreset] ? c.voicePreset : undefined
 
   const readAttempts = (): Attempts => {
     try {
@@ -154,26 +165,48 @@ export function createLock(store: StorageLike, now: () => number = Date.now) {
     if (left > 0) throw new LockError(`Too many wrong attempts. Try again in ${Math.ceil(left / 1000)}s.`)
   }
 
+  /** true if the password matches; false when wrong or when no password is set */
   const checkPassword = async (pw: string) => {
     const c = read()
-    if (!c) return true
+    if (!c?.pw) return false
     guard()
     const ok = await matches(pw, c.pw, c.iterations)
     recordResult(ok)
     return ok
   }
 
-  const requirePassword = async (pw: string) => {
-    if (!(await checkPassword(pw))) throw new LockError('Current password is wrong.')
+  /** settings changes need the admin password — only once one has been set */
+  const requireAdmin = async (current: string | undefined) => {
+    if (!read()?.pw) return
+    if (!(await checkPassword(current ?? ''))) throw new LockError('Current password is wrong.')
+  }
+
+  const verifyVoice = async (transcript: string) => {
+    const c = read()
+    const preset = presetOf(c)
+    // built-in phrase: not a secret, so misses don't count toward the cooldown
+    if (preset) return presetMatches(preset, transcript)
+    if (!c?.voice) return false
+    guard()
+    // the recogniser may catch a stray word before/after — try each window of the phrase length
+    const words = normalizePhrase(transcript).split(' ').filter(Boolean)
+    const n = c.voice.words ?? words.length
+    let ok = false
+    for (let i = 0; i + n <= words.length && i < 6 && !ok; i++)
+      ok = await matches(words.slice(i, i + n).join(' '), c.voice, c.iterations)
+    recordResult(ok)
+    return ok
   }
 
   return {
     status() {
       const c = read()
-      const preset = c?.voicePreset && VOICE_PRESETS[c.voicePreset] ? c.voicePreset : undefined
+      const preset = presetOf(c)
+      const voice = !!(c && (c.voice || preset))
       return {
-        enabled: !!c,
-        voice: !!(c && (c.voice || preset)),
+        enabled: !!c && (!!c.pw || voice),
+        hasPassword: !!c?.pw,
+        voice,
         voicePreset: preset,
         voiceLabel: preset ? VOICE_PRESETS[preset].label : c?.voice ? 'custom phrase' : undefined,
       }
@@ -184,59 +217,55 @@ export function createLock(store: StorageLike, now: () => number = Date.now) {
     async setPassword(next: string, current?: string) {
       if (next.length < MIN_PASSWORD)
         throw new LockError(`Password must be at least ${MIN_PASSWORD} characters.`)
+      await requireAdmin(current)
       const c = read()
-      if (c) await requirePassword(current ?? '')
-      const iterations = c?.iterations ?? ITERATIONS
-      write({ v: 1, iterations, pw: await hashNew(next, iterations), voice: c?.voice })
+      const it = c?.iterations ?? ITERATIONS
+      write({ ...base(c), voice: c?.voice, voicePreset: c?.voicePreset, pw: await hashNew(next, it) })
     },
 
-    async removeLock(current: string) {
-      await requirePassword(current)
-      write(null)
+    /** Turn the whole lock off (Apply runs without asking). */
+    async removeLock(current?: string) {
+      await requireAdmin(current)
+      write({ ...base(read()), off: true })
     },
 
-    async setVoicePhrase(phrase: string, current: string) {
-      const c = read()
-      if (!c) throw new LockError('Set a password first.')
+    async setVoicePhrase(phrase: string, current?: string) {
       const err = validatePhrase(phrase)
       if (err) throw new LockError(err)
-      await requirePassword(current)
+      await requireAdmin(current)
+      const c = read()
       const n = normalizePhrase(phrase)
-      write({ ...c, voicePreset: undefined, voice: { ...(await hashNew(n, c.iterations)), words: n.split(' ').length } })
+      const voice = { ...(await hashNew(n, c?.iterations ?? ITERATIONS)), words: n.split(' ').length }
+      write({ ...base(c), pw: c?.pw, voice })
     },
 
-    async setVoicePreset(id: VoicePresetId, current: string) {
-      const c = read()
-      if (!c) throw new LockError('Set a password first.')
+    async setVoicePreset(id: VoicePresetId, current?: string) {
       if (!VOICE_PRESETS[id]) throw new LockError('Unknown voice preset.')
-      await requirePassword(current)
-      write({ ...c, voice: undefined, voicePreset: id })
-    },
-
-    async clearVoicePhrase(current: string) {
+      await requireAdmin(current)
       const c = read()
-      if (!c) return
-      await requirePassword(current)
-      write({ ...c, voice: undefined, voicePreset: undefined })
+      write({ ...base(c), pw: c?.pw, voicePreset: id })
     },
 
-    /** True when unlocked (or no lock set). Wrong attempts count toward the cooldown. */
+    async clearVoicePhrase(current?: string) {
+      await requireAdmin(current)
+      const c = read()
+      write({ ...base(c), pw: c?.pw, off: !c?.pw })
+    },
+
     verifyPassword: checkPassword,
+    verifyVoice,
 
-    async verifyVoice(transcript: string) {
+    /**
+     * What the unlock box accepts when typed: the password if one is set,
+     * otherwise the voice word itself (for PCs without a microphone).
+     */
+    async verifyTyped(text: string) {
       const c = read()
-      // built-in phrase: not a secret, so misses don't count toward the cooldown
-      if (c?.voicePreset && VOICE_PRESETS[c.voicePreset]) return presetMatches(c.voicePreset, transcript)
-      if (!c?.voice) return false
-      guard()
-      // the recogniser may catch a stray word before/after — try each window of the phrase length
-      const words = normalizePhrase(transcript).split(' ').filter(Boolean)
-      const n = c.voice.words ?? words.length
-      let ok = false
-      for (let i = 0; i + n <= words.length && i < 6 && !ok; i++)
-        ok = await matches(words.slice(i, i + n).join(' '), c.voice, c.iterations)
-      recordResult(ok)
-      return ok
+      if (!c) return true
+      if (c.pw) return checkPassword(text)
+      const preset = presetOf(c)
+      if (preset) return normalizePhrase(text) === normalizePhrase(VOICE_PRESETS[preset].label)
+      return verifyVoice(text)
     },
   }
 }

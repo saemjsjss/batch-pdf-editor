@@ -10,9 +10,9 @@ const errText = (e: unknown) => (e instanceof LockError ? e.message : `Something
 const micError = (err: unknown) => {
   const name = (err as { name?: string })?.name
   return name === 'NotAllowedError'
-    ? 'Microphone permission was blocked. Allow it in the browser, or type the password.'
+    ? 'Microphone permission was blocked. Allow it in the browser, or type it instead.'
     : name === 'NotFoundError'
-      ? 'No microphone found. Type the password instead.'
+      ? 'No microphone found — type it in the box instead.'
       : errText(err)
 }
 
@@ -68,6 +68,7 @@ export function UnlockDialog({
   const preset = lock.status().voicePreset
   const presetLabel = preset ? VOICE_PRESETS[preset].label : ''
   const sayWhat = preset ? `“${presetLabel}”` : 'your passphrase'
+  const hasPassword = lock.status().hasPassword
 
   useEffect(() => {
     if (!open) {
@@ -85,8 +86,8 @@ export function UnlockDialog({
     setChecking(true)
     setError('')
     try {
-      if (await lock.verifyPassword(pw)) onUnlocked()
-      else setError('Wrong password.')
+      if (await lock.verifyTyped(pw)) onUnlocked()
+      else setError(hasPassword ? 'Wrong password.' : `That's not “${presetLabel || 'the phrase'}”.`)
     } catch (err) {
       setError(errText(err))
     } finally {
@@ -148,17 +149,16 @@ export function UnlockDialog({
           </DialogTitle>
           <DialogDescription>
             {lock.status().voice
-              ? `Say ${sayWhat} or enter the password to continue.`
+              ? `Say ${sayWhat} to apply the edits${hasPassword ? ', or enter the password' : ''}.`
               : 'Applying edits is locked. Enter the admin password to continue.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="pk-stack">
           <Input
-            type="password"
-            autoFocus
-            autoComplete="current-password"
-            placeholder="Password"
-            aria-label="Password"
+            type={hasPassword ? 'password' : 'text'}
+            autoComplete={hasPassword ? 'current-password' : 'off'}
+            placeholder={hasPassword ? 'Password' : `No microphone? Type “${presetLabel || 'your phrase'}”`}
+            aria-label={hasPassword ? 'Password' : 'Type the phrase'}
             value={pw}
             onChange={(e) => setPw(e.target.value)}
           />
@@ -186,10 +186,10 @@ export function UnlockDialog({
                   : 'Unlock with voice'}
             </button>
             {voiceState === 'no-model' && (
-              <p className="pk-hint">Voice model not installed on this PC — use the password.</p>
+              <p className="pk-hint">Voice model not installed on this PC — type it above instead.</p>
             )}
             {voiceState === 'unsupported' && (
-              <p className="pk-hint">This browser can't use the microphone here — use the password.</p>
+              <p className="pk-hint">This browser can't use the microphone here — type it above instead.</p>
             )}
             {heard && !preset && (
               <p className="pk-hint" data-testid="heard">
@@ -262,36 +262,89 @@ export function LockSettingsDialog({
     e.preventDefault()
     if (next !== confirm) return setMsg({ ok: false, text: 'The two new passwords do not match.' })
     void run(
-      () => lock.setPassword(next, status.enabled ? current : undefined),
-      status.enabled ? 'Password changed.' : 'Lock is on. Apply edits now needs this password.',
+      () => lock.setPassword(next, current),
+      status.hasPassword ? 'Password changed.' : 'Password set. It is now needed to change these settings.',
     )
   }
 
+  const needCurrent = status.hasPassword && !current
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md" data-testid="lock-settings">
+      <DialogContent className="sm:max-w-md max-h-[92vh] overflow-y-auto" data-testid="lock-settings">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5" style={{ color: 'var(--pk-primary)' }} /> Apply-edits lock
           </DialogTitle>
           <DialogDescription>
-            {status.enabled
-              ? `Lock is ON${status.voice ? ` · voice unlock on (${status.voiceLabel})` : ''}. Staff need the password${status.voice ? ' or the phrase' : ''} to apply edits.`
-              : 'Lock is OFF. Anyone using this PC can apply edits.'}
+            {!status.enabled
+              ? 'Lock is OFF — Apply runs without asking.'
+              : `Lock is ON — Apply asks for ${status.voice ? `the voice word (${status.voiceLabel})` : 'the password'}${status.voice && status.hasPassword ? ' or the password' : ''}.`}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={savePassword} className="pk-stack">
-          {status.enabled && (
-            <Input
-              type="password"
-              autoComplete="current-password"
-              placeholder="Current password"
-              aria-label="Current password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
+        {status.hasPassword && (
+          <Input
+            type="password"
+            autoComplete="current-password"
+            placeholder="Current admin password"
+            aria-label="Current password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+          />
+        )}
+
+        <div className="pk-stack">
+          <b className="text-sm" style={{ color: 'var(--pk-heading)' }}>
+            Voice password
+          </b>
+          <p className="pk-hint" style={{ marginTop: 0 }}>
+            When you click Apply, the app listens; say the word and the edits apply. Recognised offline on
+            this PC. Anyone who says it can unlock.
+          </p>
+          {voiceState === 'no-model' && (
+            <p className="pk-hint text-red-600">
+              Voice model file is missing from this install, so the word must be typed instead.
+            </p>
           )}
+          <button
+            type="button"
+            className="pk-btn pk-btn-soft"
+            disabled={busy || needCurrent || (status.enabled && status.voicePreset === 'bismillah')}
+            onClick={() => run(() => lock.setVoicePreset('bismillah', current), 'Voice password set: say “Bismillah”.')}
+          >
+            <Mic className="h-4 w-4" />
+            {status.enabled && status.voicePreset === 'bismillah' ? '“Bismillah” is on' : 'Use “Bismillah”'}
+          </button>
+          <p className="pk-hint" style={{ margin: '2px 0 0' }}>…or your own English phrase:</p>
+          <Input
+            placeholder='Passphrase, e.g. "pink lotus morning"'
+            aria-label="Voice passphrase"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+          />
+          <button
+            type="button"
+            className="pk-btn pk-btn-soft"
+            disabled={busy || !phrase || needCurrent}
+            onClick={() => run(() => lock.setVoicePhrase(phrase, current), 'Voice passphrase saved.')}
+          >
+            <Mic className="h-4 w-4" /> {status.voice ? 'Replace voice passphrase' : 'Save voice passphrase'}
+          </button>
+          {status.enabled && status.voice && voiceState === 'yes' && <VoiceTester />}
+        </div>
+
+        <form
+          onSubmit={savePassword}
+          className="pk-stack"
+          style={{ borderTop: '1px solid var(--pk-border)', paddingTop: 12 }}
+        >
+          <b className="text-sm" style={{ color: 'var(--pk-heading)' }}>
+            Admin password {status.hasPassword ? '' : '(optional)'}
+          </b>
+          <p className="pk-hint" style={{ marginTop: 0 }}>
+            Stops staff changing these settings, and can also unlock Apply.
+          </p>
           <Input
             type="password"
             autoComplete="new-password"
@@ -308,80 +361,38 @@ export function LockSettingsDialog({
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
           />
-          <button className="pk-btn pk-btn-primary" disabled={busy || !next || (status.enabled && !current)}>
+          <button className="pk-btn pk-btn-primary" disabled={busy || !next || needCurrent}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-            {status.enabled ? 'Change password' : 'Turn lock on'}
+            {status.hasPassword ? 'Change password' : 'Set password'}
           </button>
         </form>
 
-        {status.enabled && (
-          <div className="pk-stack" style={{ borderTop: '1px solid var(--pk-border)', paddingTop: 12 }}>
-            <b className="text-sm" style={{ color: 'var(--pk-heading)' }}>
-              Voice unlock (optional)
-            </b>
+        <div className="pk-stack" style={{ borderTop: '1px solid var(--pk-border)', paddingTop: 12 }}>
+          {status.enabled ? (
+            <button
+              type="button"
+              className="pk-btn pk-btn-soft"
+              disabled={busy || needCurrent}
+              onClick={() => run(() => lock.removeLock(current), 'Lock turned off.')}
+            >
+              Turn lock off
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="pk-btn pk-btn-primary"
+              disabled={busy || needCurrent}
+              onClick={() => run(() => lock.setVoicePreset('bismillah', current), 'Lock is on: say “Bismillah”.')}
+            >
+              <Lock className="h-4 w-4" /> Turn lock on (Bismillah)
+            </button>
+          )}
+          {needCurrent && (
             <p className="pk-hint" style={{ marginTop: 0 }}>
-              Say the phrase and Apply continues — recognised offline on this PC. Anyone who says it can
-              unlock, so the password stays the main lock.
+              Enter the current admin password at the top to change anything.
             </p>
-            <button
-              type="button"
-              className="pk-btn pk-btn-soft"
-              disabled={busy || !current || status.voicePreset === 'bismillah'}
-              onClick={() =>
-                run(() => lock.setVoicePreset('bismillah', current), 'Voice unlock set: say “Bismillah”.')
-              }
-            >
-              <Mic className="h-4 w-4" />
-              {status.voicePreset === 'bismillah' ? '“Bismillah” is on' : 'Use “Bismillah”'}
-            </button>
-            {voiceState === 'no-model' && (
-              <p className="pk-hint text-red-600">Voice model file is missing from this install, so voice unlock will not work on this PC.</p>
-            )}
-            <p className="pk-hint" style={{ margin: '2px 0 0' }}>…or your own English phrase:</p>
-            <Input
-              placeholder='Passphrase, e.g. "pink lotus morning"'
-              aria-label="Voice passphrase"
-              value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
-            />
-            <button
-              type="button"
-              className="pk-btn pk-btn-soft"
-              disabled={busy || !phrase || !current}
-              onClick={() =>
-                run(() => lock.setVoicePhrase(phrase, current), 'Voice passphrase saved.')
-              }
-            >
-              <Mic className="h-4 w-4" /> {status.voice ? 'Replace voice passphrase' : 'Save voice passphrase'}
-            </button>
-            {status.voice && voiceState === 'yes' && <VoiceTester />}
-            <div className="flex gap-2">
-              {status.voice && (
-                <button
-                  type="button"
-                  className="pk-btn pk-btn-soft"
-                  disabled={busy || !current}
-                  onClick={() => run(() => lock.clearVoicePhrase(current), 'Voice unlock turned off.')}
-                >
-                  Turn voice off
-                </button>
-              )}
-              <button
-                type="button"
-                className="pk-btn pk-btn-soft"
-                disabled={busy || !current}
-                onClick={() => run(() => lock.removeLock(current), 'Lock removed.')}
-              >
-                Remove lock
-              </button>
-            </div>
-            {!current && (
-              <p className="pk-hint" style={{ marginTop: 0 }}>
-                Enter the current password above to change voice settings or remove the lock.
-              </p>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
         {msg && (
           <p role={msg.ok ? 'status' : 'alert'} className={`text-sm ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>

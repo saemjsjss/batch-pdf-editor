@@ -92,8 +92,6 @@ function loadTemplates(): Snippet[] {
 
 const uid = () => crypto.randomUUID()
 
-/** after a successful unlock, Apply stays unlocked this long */
-const UNLOCK_GRACE_MS = 5 * 60_000
 
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
@@ -125,14 +123,10 @@ export default function Home() {
   const [bgColor, setBgColor] = useState('#ffffff')
   const [templates, setTemplates] = useState<Snippet[]>(loadTemplates)
   const [lockOn, setLockOn] = useState(() => appLock().status().enabled)
-  const [unlocked, setUnlocked] = useState(false)
+  const [, setLockRev] = useState(0)
   const [showUnlock, setShowUnlock] = useState(false)
   const [showLockSettings, setShowLockSettings] = useState(false)
-  useEffect(() => {
-    if (!unlocked) return
-    const t = setTimeout(() => setUnlocked(false), UNLOCK_GRACE_MS)
-    return () => clearTimeout(t)
-  }, [unlocked])
+
 
   /** undo / redo stacks for the edit list */
   const [past, setPast] = useState<EditOp[][]>([])
@@ -432,9 +426,14 @@ export default function Home() {
     setEditingId(null)
   }
 
+  const lockStatus = appLock().status()
+  const lockAsk =
+    lockStatus.voicePreset === 'bismillah' ? '“Bismillah”' : lockStatus.voice ? 'your phrase' : 'the password'
+
   function requestApply() {
     if (!files.length || !edits.length || busy) return
-    if (appLock().status().enabled && !unlocked) setShowUnlock(true)
+    // asks every time: say the voice word (or type it / the password), then Apply continues
+    if (appLock().status().enabled) setShowUnlock(true)
     else void applyAll()
   }
 
@@ -1246,7 +1245,7 @@ export default function Home() {
               >
                 {busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                ) : lockOn && !unlocked ? (
+                ) : lockOn ? (
                   <Lock className="h-4 w-4" />
                 ) : (
                   <FileCheck2 className="h-4 w-4" />
@@ -1255,16 +1254,18 @@ export default function Home() {
                   ? `Applying… ${progress.done}/${progress.total}`
                   : `Apply edits to ${files.length} PDF${files.length === 1 ? '' : 's'}`}
               </button>
-              {lockOn && unlocked && (
-                <p className="pk-hint flex items-center justify-between" style={{ marginTop: 0 }}>
-                  <span className="flex items-center gap-1">
-                    <LockOpen className="h-3.5 w-3.5" /> Unlocked for 5 minutes
-                  </span>
-                  <button className="underline" onClick={() => setUnlocked(false)}>
-                    Lock now
-                  </button>
-                </p>
-              )}
+              <button
+                className="pk-lock-row"
+                onClick={() => setShowLockSettings(true)}
+                data-testid="apply-lock-row"
+              >
+                {lockOn ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+                <span>
+                  {lockOn ? 'Voice password: ON' : 'Voice password: OFF'}
+                  <small>{lockOn ? `Apply asks for ${lockAsk}` : 'Apply runs without asking'}</small>
+                </span>
+                <b>{lockOn ? 'Settings' : 'Set password'}</b>
+              </button>
               {okResults.length >= 1 && (
                 <button className="pk-btn pk-btn-soft" onClick={downloadZip}>
                   <Download className="h-4 w-4" /> Download all (.zip)
@@ -1337,7 +1338,6 @@ export default function Home() {
         onCancel={() => setShowUnlock(false)}
         onUnlocked={() => {
           setShowUnlock(false)
-          setUnlocked(true)
           void applyAll()
         }}
       />
@@ -1346,7 +1346,7 @@ export default function Home() {
         onClose={() => setShowLockSettings(false)}
         onChanged={() => {
           setLockOn(appLock().status().enabled)
-          setUnlocked(false)
+          setLockRev((r) => r + 1)
         }}
       />
     </div>

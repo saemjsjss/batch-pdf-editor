@@ -34,3 +34,12 @@ export async function pdfText(path: string): Promise<string> {
   await task.destroy()
   return parts.join(' ')
 }
+
+/** Unlock dialog without a microphone: type the voice word (or the password). */
+export async function unlockByTyping(page: Page, text = 'Bismillah') {
+  const dlg = page.getByTestId('unlock-dialog')
+  await expect(dlg).toBeVisible()
+  const box = dlg.getByLabel(/Type the phrase|Password/)
+  await box.fill(text)
+  await dlg.getByRole('button', { name: 'Unlock', exact: true }).click()
+}

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { addTextEdit, pdfText, upload } from './helpers'
+import { addTextEdit, pdfText, unlockByTyping, upload } from './helpers'
 
 test.beforeEach(async ({ page }) => {
   const errors: string[] = []
@@ -22,6 +22,7 @@ test('add text once, apply to every PDF, download the edited file', async ({ pag
   await upload(page)
   await addTextEdit(page, 'E2E STAMP 2026')
   await page.getByRole('button', { name: /Apply edits to 3 PDFs/ }).click()
+  await unlockByTyping(page)
   await expect(page.getByText('Done 3 / 3')).toBeVisible()
   await expect(page.locator('.pk-result')).toHaveCount(3)
 

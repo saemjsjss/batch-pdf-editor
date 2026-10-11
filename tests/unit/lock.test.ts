@@ -21,10 +21,33 @@ function memStore(): StorageLike & { data: Map<string, string> } {
 }
 
 describe('lock', () => {
-  it('is open until a password is set', async () => {
+  it('out of the box Apply asks for “Bismillah” (no password needed)', async () => {
     const lock = createLock(memStore())
-    expect(lock.status()).toEqual({ enabled: false, voice: false })
-    expect(await lock.verifyPassword('anything')).toBe(true)
+    expect(lock.status()).toMatchObject({ enabled: true, hasPassword: false, voicePreset: 'bismillah' })
+    expect(await lock.verifyTyped('Bismillah')).toBe(true)
+    expect(await lock.verifyTyped('bismillah!')).toBe(true)
+    expect(await lock.verifyTyped('hello')).toBe(false)
+    expect(await lock.verifyVoice('this me la')).toBe(true)
+    expect(await lock.verifyPassword('anything')).toBe(false)
+  })
+
+  it('can be turned off and on again without a password', async () => {
+    const lock = createLock(memStore())
+    await lock.removeLock()
+    expect(lock.status().enabled).toBe(false)
+    expect(await lock.verifyTyped('anything')).toBe(true)
+    await lock.setVoicePreset('bismillah')
+    expect(lock.status()).toMatchObject({ enabled: true, voicePreset: 'bismillah' })
+  })
+
+  it('with an admin password, typing the password unlocks and the word alone does not', async () => {
+    const lock = createLock(memStore())
+    await lock.setPassword('admin-pass')
+    expect(lock.status()).toMatchObject({ enabled: true, hasPassword: true, voicePreset: 'bismillah' })
+    expect(await lock.verifyTyped('admin-pass')).toBe(true)
+    expect(await lock.verifyTyped('Bismillah')).toBe(false)
+    expect(await lock.verifyVoice('bis me la')).toBe(true)
+    await expect(lock.removeLock('nope')).rejects.toThrow(/wrong/)
   })
 
   it('stores only a salted hash, never the password', async () => {
@@ -48,6 +71,7 @@ describe('lock', () => {
     await expect(lock.removeLock('first-pass')).rejects.toThrow()
     await lock.removeLock('second-pass')
     expect(lock.status().enabled).toBe(false)
+    expect(lock.status().hasPassword).toBe(false)
   })
 
   it('cools down after repeated wrong attempts, and the cooldown expires', async () => {

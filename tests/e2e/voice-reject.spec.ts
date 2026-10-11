@@ -14,8 +14,8 @@ test.describe('Bismillah ignores other speech', () => {
     await expect(dlg.getByRole('alert')).toHaveText(/Didn't hear “Bismillah”|Didn't catch that/, { timeout: 60_000 })
     await expect(dlg).toBeVisible()
     await expect(page.locator('.pk-result')).toHaveCount(0)
-    // password still works
-    await dlg.getByLabel('Password').fill('office-1234')
+    // typing the word still works (no-microphone fallback)
+    await dlg.getByLabel('Type the phrase').fill('Bismillah')
     await dlg.getByRole('button', { name: 'Unlock', exact: true }).click()
     await expect(page.getByText('Done 3 / 3')).toBeVisible()
   })

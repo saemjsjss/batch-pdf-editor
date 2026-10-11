@@ -17,7 +17,6 @@ test('custom English phrase: wrong phrase is rejected, right phrase unlocks', as
 
   await page.getByRole('button', { name: /Lock settings/ }).click()
   const s = page.getByTestId('lock-settings')
-  await s.getByLabel('Current password').fill('office-1234')
   await s.getByLabel('Voice passphrase').fill('Green apple, seven')
   await s.getByRole('button', { name: 'Replace voice passphrase' }).click()
   await expect(s.getByText('Voice passphrase saved.')).toBeVisible()
