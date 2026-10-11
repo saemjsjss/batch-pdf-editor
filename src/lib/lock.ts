@@ -22,7 +22,33 @@ export interface LockConfig {
   v: 1
   iterations: number
   pw: Hashed
+  /** custom English passphrase (hashed) */
   voice?: Hashed
+  /** built-in non-English passphrase, e.g. 'bismillah' (not secret — anyone may say it) */
+  voicePreset?: VoicePresetId
+}
+
+/**
+ * Built-in passphrases for words the English model doesn't know. The recogniser is
+ * restricted to these sound-alike word sequences (+ "[unk]"), and only an exact
+ * match unlocks — tested against several voices and wrong phrases.
+ */
+export const VOICE_PRESETS = {
+  bismillah: {
+    label: 'Bismillah',
+    variants: ['bis me la', 'this me la', 'biz me la', 'is me la', 'this me laugh', 'miss me la'],
+  },
+} as const
+export type VoicePresetId = keyof typeof VOICE_PRESETS
+
+export function presetMatches(id: VoicePresetId, transcript: string): boolean {
+  const t = normalizePhrase(transcript)
+  return (VOICE_PRESETS[id].variants as readonly string[]).includes(t)
+}
+
+/** word list for a grammar-restricted recogniser */
+export function presetGrammar(id: VoicePresetId): string[] {
+  return [...VOICE_PRESETS[id].variants, '[unk]']
 }
 interface Attempts {
   fails: number
@@ -144,7 +170,13 @@ export function createLock(store: StorageLike, now: () => number = Date.now) {
   return {
     status() {
       const c = read()
-      return { enabled: !!c, voice: !!c?.voice }
+      const preset = c?.voicePreset && VOICE_PRESETS[c.voicePreset] ? c.voicePreset : undefined
+      return {
+        enabled: !!c,
+        voice: !!(c && (c.voice || preset)),
+        voicePreset: preset,
+        voiceLabel: preset ? VOICE_PRESETS[preset].label : c?.voice ? 'custom phrase' : undefined,
+      }
     },
     cooldownLeft,
 
@@ -170,14 +202,22 @@ export function createLock(store: StorageLike, now: () => number = Date.now) {
       if (err) throw new LockError(err)
       await requirePassword(current)
       const n = normalizePhrase(phrase)
-      write({ ...c, voice: { ...(await hashNew(n, c.iterations)), words: n.split(' ').length } })
+      write({ ...c, voicePreset: undefined, voice: { ...(await hashNew(n, c.iterations)), words: n.split(' ').length } })
+    },
+
+    async setVoicePreset(id: VoicePresetId, current: string) {
+      const c = read()
+      if (!c) throw new LockError('Set a password first.')
+      if (!VOICE_PRESETS[id]) throw new LockError('Unknown voice preset.')
+      await requirePassword(current)
+      write({ ...c, voice: undefined, voicePreset: id })
     },
 
     async clearVoicePhrase(current: string) {
       const c = read()
       if (!c) return
       await requirePassword(current)
-      write({ ...c, voice: undefined })
+      write({ ...c, voice: undefined, voicePreset: undefined })
     },
 
     /** True when unlocked (or no lock set). Wrong attempts count toward the cooldown. */
@@ -185,6 +225,8 @@ export function createLock(store: StorageLike, now: () => number = Date.now) {
 
     async verifyVoice(transcript: string) {
       const c = read()
+      // built-in phrase: not a secret, so misses don't count toward the cooldown
+      if (c?.voicePreset && VOICE_PRESETS[c.voicePreset]) return presetMatches(c.voicePreset, transcript)
       if (!c?.voice) return false
       guard()
       // the recogniser may catch a stray word before/after — try each window of the phrase length

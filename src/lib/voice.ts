@@ -39,6 +39,10 @@ function loadModel(): Promise<Model> {
 }
 
 export interface ListenOptions {
+  /** restrict recognition to these words/phrases (Vosk grammar; include "[unk]") */
+  grammar?: string[]
+  /** keep listening until a final result passes this check (or maxMs runs out) */
+  accept?: (text: string) => boolean
   /** live text while speaking */
   onPartial?: (text: string) => void
   /** called once the model is loaded and the mic is open */
@@ -52,14 +56,23 @@ export interface ListenOptions {
  * Listen to the microphone until the first complete utterance (or maxMs) and
  * return its transcript. Resolves '' if nothing was understood.
  */
-export async function listenOnce({ onPartial, onReady, signal, maxMs = 8000 }: ListenOptions = {}): Promise<string> {
+export async function listenOnce({
+  onPartial,
+  onReady,
+  signal,
+  grammar,
+  accept,
+  maxMs = 8000,
+}: ListenOptions = {}): Promise<string> {
   const model = await loadModel()
   if (signal?.aborted) return ''
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
   })
   const ctx = new AudioContext()
-  const recognizer = new model.KaldiRecognizer(ctx.sampleRate)
+  const recognizer = grammar
+    ? new model.KaldiRecognizer(ctx.sampleRate, JSON.stringify(grammar))
+    : new model.KaldiRecognizer(ctx.sampleRate)
   const source = ctx.createMediaStreamSource(stream)
   // ScriptProcessor is deprecated but is what vosk-browser's acceptWaveform expects and works everywhere
   const proc = ctx.createScriptProcessor(4096, 1, 1)
@@ -82,8 +95,12 @@ export async function listenOnce({ onPartial, onReady, signal, maxMs = 8000 }: L
     signal?.addEventListener('abort', () => finish(''))
 
     recognizer.on('result', (m) => {
-      const text = (m as { result?: { text?: string } }).result?.text ?? ''
-      if (text.trim()) finish(text)
+      const text = ((m as { result?: { text?: string } }).result?.text ?? '').trim()
+      if (!text) return
+      if (!accept) return finish(text)
+      last = text
+      onPartial?.(text)
+      if (accept(text)) finish(text)
     })
     recognizer.on('partialresult', (m) => {
       const p = (m as { result?: { partial?: string } }).result?.partial ?? ''

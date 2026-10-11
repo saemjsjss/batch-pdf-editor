@@ -28,8 +28,10 @@ no file ever leaves your machine.
 - **Apply-edits lock** — an admin password (header → **Lock**) must be entered before edits are
   applied; stays unlocked 5 minutes, **Lock now** re-locks. Wrong attempts trigger a growing
   cooldown. Only salted PBKDF2 hashes are stored (this browser's localStorage)
-- **Voice unlock (optional)** — a spoken English passphrase, recognised fully offline (Vosk);
-  no audio leaves the PC. Anyone who says the phrase can unlock, so the password stays the main lock
+- **Voice unlock (optional)** — say **“Bismillah”** (built-in) or your own English phrase. When you
+  click Apply, the app starts listening by itself; once it hears the phrase, the edits apply.
+  Recognised fully offline (Vosk) — no audio leaves the PC. Anyone who says the phrase can unlock,
+  so the password stays the main lock. **Lock → Test voice** lets you try it without applying
 
 > The lock is a workplace deterrent, not DRM: everything runs in the browser, so someone with
 > developer tools on the same PC could bypass it.

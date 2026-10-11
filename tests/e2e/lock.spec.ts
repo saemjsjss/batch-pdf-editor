@@ -35,12 +35,12 @@ test('password lock blocks apply until the right password is given', async ({ pa
   await expect(page.locator('.pk-result')).toHaveCount(0)
 
   await dlg.getByLabel('Password').fill('wrong')
-  await dlg.getByRole('button', { name: 'Unlock' }).click()
+  await dlg.getByRole('button', { name: 'Unlock', exact: true }).click()
   await expect(dlg.getByRole('alert')).toHaveText('Wrong password.')
   await expect(page.locator('.pk-result')).toHaveCount(0)
 
   await dlg.getByLabel('Password').fill('office-1234')
-  await dlg.getByRole('button', { name: 'Unlock' }).click()
+  await dlg.getByRole('button', { name: 'Unlock', exact: true }).click()
   await expect(dlg).toBeHidden()
   await expect(page.getByText('Done 3 / 3')).toBeVisible()
 

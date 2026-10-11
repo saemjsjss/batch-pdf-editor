@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { createLock, normalizePhrase, validatePhrase, LOCK_KEY, MAX_FAILS, type StorageLike } from '../../src/lib/lock'
+import {
+  createLock,
+  normalizePhrase,
+  presetGrammar,
+  presetMatches,
+  validatePhrase,
+  LOCK_KEY,
+  MAX_FAILS,
+  type StorageLike,
+} from '../../src/lib/lock'
 
 function memStore(): StorageLike & { data: Map<string, string> } {
   const data = new Map<string, string>()
@@ -69,5 +78,35 @@ describe('lock', () => {
     expect(validatePhrase('open')).toMatch(/2 words/)
     expect(validatePhrase('합격 증명서 입니다')).toMatch(/English/)
     expect(validatePhrase('pink lotus morning')).toBeNull()
+  })
+})
+
+describe('Bismillah preset', () => {
+  it('matches only the sound-alike sequences the recogniser produces', () => {
+    for (const t of ['bis me la', 'this me la', 'This me laugh', 'biz me la']) expect(presetMatches('bismillah', t)).toBe(true)
+    for (const t of ['[unk]', 'la [unk]', 'this is me laugh', 'unk this me la', '', 'open the door'])
+      expect(presetMatches('bismillah', t)).toBe(false)
+    expect(presetGrammar('bismillah')).toContain('[unk]')
+  })
+
+  it('needs the password to turn on, and misses never trigger the password cooldown', async () => {
+    const lock = createLock(memStore())
+    await lock.setPassword('admin-pass')
+    await expect(lock.setVoicePreset('bismillah', 'wrong')).rejects.toThrow()
+    await lock.setVoicePreset('bismillah', 'admin-pass')
+    expect(lock.status()).toMatchObject({ voice: true, voicePreset: 'bismillah', voiceLabel: 'Bismillah' })
+    for (let i = 0; i < MAX_FAILS * 2; i++) expect(await lock.verifyVoice('hello there')).toBe(false)
+    expect(await lock.verifyVoice('bis me la')).toBe(true)
+    expect(await lock.verifyPassword('admin-pass')).toBe(true) // not cooled down
+  })
+
+  it('custom phrase and preset replace each other', async () => {
+    const lock = createLock(memStore())
+    await lock.setPassword('admin-pass')
+    await lock.setVoicePreset('bismillah', 'admin-pass')
+    await lock.setVoicePhrase('green apple seven', 'admin-pass')
+    expect(lock.status().voicePreset).toBeUndefined()
+    expect(await lock.verifyVoice('bis me la')).toBe(false)
+    expect(await lock.verifyVoice('green apple seven')).toBe(true)
   })
 })
