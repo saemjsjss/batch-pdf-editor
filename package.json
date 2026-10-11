@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "get-voice-model": "node scripts/get-voice-model.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:staff": "tsc -b && vite build --mode staff --outDir dist-staff",
+    "exe": "npm run build:staff && electron-builder --win --x64"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -74,6 +76,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
+    "electron": "^43.7.5",
+    "electron-builder": "^26.16.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
@@ -88,5 +92,55 @@
     "vite": "^7.2.4",
     "vitest": "^3.2.7"
   },
-  "description": "Batch PDF editor: mark edits once on a template PDF, apply them at the same positions across dozens of similar PDFs, download individually or as ZIP. Runs entirely in the browser."
+  "description": "Batch PDF editor: mark edits once on a template PDF, apply them at the same positions across dozens of similar PDFs, download individually or as ZIP. Runs entirely in the browser.",
+  "main": "electron/main.cjs",
+  "productName": "Bismillah PDF Editor",
+  "author": "Saemur Rahman",
+  "build": {
+    "appId": "bd.com.hangeul.bismillah-pdf-editor",
+    "productName": "Bismillah PDF Editor",
+    "copyright": "Created by Sir SAEMUR RAHMAN",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "dist-staff/**",
+      "build/icon.png",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Bismillah PDF Editor",
+      "artifactName": "Bismillah-PDF-Editor-Setup-${version}.exe",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Bismillah-PDF-Editor-Portable-${version}.exe"
+    }
+  }
 }

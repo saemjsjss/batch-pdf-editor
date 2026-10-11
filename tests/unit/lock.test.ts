@@ -134,3 +134,17 @@ describe('Bismillah preset', () => {
     expect(await lock.verifyVoice('green apple seven')).toBe(true)
   })
 })
+
+describe('staff edition (fixed lock)', () => {
+  it('always asks for Bismillah, and settings changes have no effect', async () => {
+    const store = memStore()
+    const fixed = { v: 1 as const, iterations: 1000, voicePreset: 'bismillah' as const }
+    const lock = createLock(store, Date.now, { fixed })
+    store.setItem(LOCK_KEY, JSON.stringify({ v: 1, iterations: 1000, off: true }))
+    expect(lock.status()).toMatchObject({ enabled: true, voicePreset: 'bismillah', hasPassword: false })
+    await lock.removeLock()
+    expect(lock.status().enabled).toBe(true)
+    expect(await lock.verifyTyped('Bismillah')).toBe(true)
+    expect(await lock.verifyTyped('anything')).toBe(false)
+  })
+})

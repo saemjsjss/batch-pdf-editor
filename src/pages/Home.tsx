@@ -29,7 +29,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { LockSettingsDialog, UnlockDialog } from '@/components/LockDialogs'
-import { appLock } from '@/lib/lock'
+import { appLock, IS_STAFF_EDITION } from '@/lib/lock'
 import PdfPreview, { type RegionRect, type PreviewMode } from '@/components/PdfPreview'
 import {
   applyEdits,
@@ -585,15 +585,17 @@ export default function Home() {
             <b>{okResults.length ? '✓' : '3'}</b>Download
           </div>
         </div>
+        {!IS_STAFF_EDITION && (
         <button
-          className={`pk-lockbtn ${lockOn ? 'on' : ''}`}
-          onClick={() => setShowLockSettings(true)}
-          title="Password lock for Apply edits"
-          aria-label={lockOn ? 'Lock settings (lock on)' : 'Lock settings (lock off)'}
-        >
-          {lockOn ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
-          <span>{lockOn ? 'Locked' : 'Lock'}</span>
-        </button>
+            className={`pk-lockbtn ${lockOn ? 'on' : ''}`}
+            onClick={() => setShowLockSettings(true)}
+            title="Password lock for Apply edits"
+            aria-label={lockOn ? 'Lock settings (lock on)' : 'Lock settings (lock off)'}
+          >
+            {lockOn ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+            <span>{lockOn ? 'Locked' : 'Lock'}</span>
+          </button>
+        )}
       </header>
 
       <div className="pk-app">
@@ -1254,18 +1256,20 @@ export default function Home() {
                   ? `Applying… ${progress.done}/${progress.total}`
                   : `Apply edits to ${files.length} PDF${files.length === 1 ? '' : 's'}`}
               </button>
+              {!IS_STAFF_EDITION && (
               <button
-                className="pk-lock-row"
-                onClick={() => setShowLockSettings(true)}
-                data-testid="apply-lock-row"
-              >
-                {lockOn ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
-                <span>
-                  {lockOn ? 'Voice password: ON' : 'Voice password: OFF'}
-                  <small>{lockOn ? `Apply asks for ${lockAsk}` : 'Apply runs without asking'}</small>
-                </span>
-                <b>{lockOn ? 'Settings' : 'Set password'}</b>
-              </button>
+                  className="pk-lock-row"
+                  onClick={() => setShowLockSettings(true)}
+                  data-testid="apply-lock-row"
+                >
+                  {lockOn ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+                  <span>
+                    {lockOn ? 'Voice password: ON' : 'Voice password: OFF'}
+                    <small>{lockOn ? `Apply asks for ${lockAsk}` : 'Apply runs without asking'}</small>
+                  </span>
+                  <b>{lockOn ? 'Settings' : 'Set password'}</b>
+                </button>
+              )}
               {okResults.length >= 1 && (
                 <button className="pk-btn pk-btn-soft" onClick={downloadZip}>
                   <Download className="h-4 w-4" /> Download all (.zip)
@@ -1340,14 +1344,16 @@ export default function Home() {
           void applyAll()
         }}
       />
+      {!IS_STAFF_EDITION && (
       <LockSettingsDialog
-        open={showLockSettings}
-        onClose={() => setShowLockSettings(false)}
-        onChanged={() => {
-          setLockOn(appLock().status().enabled)
-          setLockRev((r) => r + 1)
-        }}
-      />
+          open={showLockSettings}
+          onClose={() => setShowLockSettings(false)}
+          onChanged={() => {
+            setLockOn(appLock().status().enabled)
+            setLockRev((r) => r + 1)
+          }}
+        />
+      )}
     </div>
   )
 }

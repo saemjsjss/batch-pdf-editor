@@ -32,3 +32,6 @@ playwright-report/
 
 # Windows package output
 release/
+
+# staff edition build
+dist-staff/

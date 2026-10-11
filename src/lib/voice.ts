@@ -11,7 +11,9 @@ let modelPromise: Promise<Model> | null = null
 export async function voiceModelInstalled(): Promise<boolean> {
   try {
     const r = await fetch(VOICE_MODEL_PATH, { method: 'HEAD' })
-    return r.ok && Number(r.headers.get('content-length') ?? '1') > 1_000_000
+    const len = r.headers.get('content-length')
+    // some servers omit the length on HEAD — then trust the status code
+    return r.ok && (len === null || Number(len) > 1_000_000)
   } catch {
     return false
   }

@@ -49,6 +49,19 @@ npm run dev               # http://localhost:3000
 Copy the folder (with a built `dist/`), then double-click **`Start Bismillah PDF Editor.bat`**. It starts a
 tiny local server (`windows/server.ps1`) and opens http://localhost:5199. Close the window to stop.
 
+### Windows app for staff (.exe)
+
+```bash
+npm run exe   # builds the staff edition and release/Bismillah-PDF-Editor-Setup-x.y.z.exe + -Portable-x.y.z.exe
+```
+
+The **staff edition** has no lock settings at all: the header Lock button, the settings
+screen and the "Voice password" row are removed, and Apply always asks for “Bismillah”
+(spoken, or typed when there is no microphone). Stored settings are ignored. The desktop shell
+(`electron/main.cjs`) has no menu bar or developer tools, only allows the microphone, and opens
+outside links in the normal browser. Building on Linux needs `wine` + `wine32:i386`.
+The `.bat` launcher remains the admin edition with all settings.
+
 ### Checks (same as CI)
 
 ```bash

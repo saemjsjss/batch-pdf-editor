@@ -112,12 +112,23 @@ async function matches(secret: string, h: Hashed, iterations: number) {
 
 export class LockError extends Error {}
 
-export function createLock(store: StorageLike, now: () => number = Date.now) {
-  /** Out of the box (nothing saved yet) Apply asks for the spoken “Bismillah”. */
-  const DEFAULT: LockConfig = { v: 1, iterations: ITERATIONS, voicePreset: 'bismillah' }
+/** Out of the box (nothing saved yet) Apply asks for the spoken “Bismillah”. */
+const DEFAULT: LockConfig = { v: 1, iterations: ITERATIONS, voicePreset: 'bismillah' }
 
+/**
+ * Staff edition (the Windows .exe for employees): no settings screen, and the
+ * lock is fixed to “Bismillah” — whatever is in localStorage is ignored.
+ */
+export const IS_STAFF_EDITION = import.meta.env?.VITE_EDITION === 'staff'
+
+export function createLock(
+  store: StorageLike,
+  now: () => number = Date.now,
+  opts: { fixed?: LockConfig } = {},
+) {
   /** null = lock turned off */
   const read = (): LockConfig | null => {
+    if (opts.fixed) return opts.fixed
     try {
       const raw = store.getItem(LOCK_KEY)
       if (!raw) return DEFAULT
@@ -275,6 +286,7 @@ export type Lock = ReturnType<typeof createLock>
 let shared: Lock | null = null
 /** The app-wide lock backed by localStorage. */
 export function appLock(): Lock {
-  if (!shared) shared = createLock(window.localStorage)
+  if (!shared)
+    shared = createLock(window.localStorage, Date.now, IS_STAFF_EDITION ? { fixed: DEFAULT } : {})
   return shared
 }
