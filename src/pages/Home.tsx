@@ -23,9 +23,13 @@ import {
   AlertCircle,
   Square,
   Move,
+  Lock,
+  LockOpen,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { LockSettingsDialog, UnlockDialog } from '@/components/LockDialogs'
+import { appLock } from '@/lib/lock'
 import PdfPreview, { type RegionRect, type PreviewMode } from '@/components/PdfPreview'
 import {
   applyEdits,
@@ -88,6 +92,9 @@ function loadTemplates(): Snippet[] {
 
 const uid = () => crypto.randomUUID()
 
+/** after a successful unlock, Apply stays unlocked this long */
+const UNLOCK_GRACE_MS = 5 * 60_000
+
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
 export default function Home() {
@@ -117,6 +124,15 @@ export default function Home() {
   const [align, setAlign] = useState<'left' | 'center' | 'right'>('left')
   const [bgColor, setBgColor] = useState('#ffffff')
   const [templates, setTemplates] = useState<Snippet[]>(loadTemplates)
+  const [lockOn, setLockOn] = useState(() => appLock().status().enabled)
+  const [unlocked, setUnlocked] = useState(false)
+  const [showUnlock, setShowUnlock] = useState(false)
+  const [showLockSettings, setShowLockSettings] = useState(false)
+  useEffect(() => {
+    if (!unlocked) return
+    const t = setTimeout(() => setUnlocked(false), UNLOCK_GRACE_MS)
+    return () => clearTimeout(t)
+  }, [unlocked])
 
   /** undo / redo stacks for the edit list */
   const [past, setPast] = useState<EditOp[][]>([])
@@ -416,6 +432,12 @@ export default function Home() {
     setEditingId(null)
   }
 
+  function requestApply() {
+    if (!files.length || !edits.length || busy) return
+    if (appLock().status().enabled && !unlocked) setShowUnlock(true)
+    else void applyAll()
+  }
+
   async function applyAll() {
     if (!files.length || !edits.length) return
     setBusy(true)
@@ -564,6 +586,15 @@ export default function Home() {
             <b>{okResults.length ? '✓' : '3'}</b>Download
           </div>
         </div>
+        <button
+          className={`pk-lockbtn ${lockOn ? 'on' : ''}`}
+          onClick={() => setShowLockSettings(true)}
+          title="Password lock for Apply edits"
+          aria-label={lockOn ? 'Lock settings (lock on)' : 'Lock settings (lock off)'}
+        >
+          {lockOn ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+          <span>{lockOn ? 'Locked' : 'Lock'}</span>
+        </button>
       </header>
 
       <div className="pk-app">
@@ -1211,10 +1242,12 @@ export default function Home() {
               <button
                 className="pk-btn pk-btn-primary"
                 disabled={!files.length || !edits.length || busy}
-                onClick={applyAll}
+                onClick={requestApply}
               >
                 {busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : lockOn && !unlocked ? (
+                  <Lock className="h-4 w-4" />
                 ) : (
                   <FileCheck2 className="h-4 w-4" />
                 )}
@@ -1222,6 +1255,16 @@ export default function Home() {
                   ? `Applying… ${progress.done}/${progress.total}`
                   : `Apply edits to ${files.length} PDF${files.length === 1 ? '' : 's'}`}
               </button>
+              {lockOn && unlocked && (
+                <p className="pk-hint flex items-center justify-between" style={{ marginTop: 0 }}>
+                  <span className="flex items-center gap-1">
+                    <LockOpen className="h-3.5 w-3.5" /> Unlocked for 5 minutes
+                  </span>
+                  <button className="underline" onClick={() => setUnlocked(false)}>
+                    Lock now
+                  </button>
+                </p>
+              )}
               {okResults.length >= 1 && (
                 <button className="pk-btn pk-btn-soft" onClick={downloadZip}>
                   <Download className="h-4 w-4" /> Download all (.zip)
@@ -1281,6 +1324,24 @@ export default function Home() {
           )}
         </aside>
       </div>
+
+      <UnlockDialog
+        open={showUnlock}
+        onCancel={() => setShowUnlock(false)}
+        onUnlocked={() => {
+          setShowUnlock(false)
+          setUnlocked(true)
+          void applyAll()
+        }}
+      />
+      <LockSettingsDialog
+        open={showLockSettings}
+        onClose={() => setShowLockSettings(false)}
+        onChanged={() => {
+          setLockOn(appLock().status().enabled)
+          setUnlocked(false)
+        }}
+      />
     </div>
   )
 }

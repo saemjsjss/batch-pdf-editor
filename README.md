@@ -25,12 +25,36 @@ no file ever leaves your machine.
 - **Preview & download** — per-file preview of the edited result, individual downloads,
   or everything as one ZIP
 - **Progress bar** for large batches
+- **Apply-edits lock** — an admin password (header → **Lock**) must be entered before edits are
+  applied; stays unlocked 5 minutes, **Lock now** re-locks. Wrong attempts trigger a growing
+  cooldown. Only salted PBKDF2 hashes are stored (this browser's localStorage)
+- **Voice unlock (optional)** — a spoken English passphrase, recognised fully offline (Vosk);
+  no audio leaves the PC. Anyone who says the phrase can unlock, so the password stays the main lock
+
+> The lock is a workplace deterrent, not DRM: everything runs in the browser, so someone with
+> developer tools on the same PC could bypass it.
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
+npm run get-voice-model   # once: downloads the ~40 MB offline voice model into public/models/
+npm run dev               # http://localhost:3000
+```
+
+### Run on a Windows PC without Node
+
+Copy the folder (with a built `dist/`), then double-click **`Start Batch PDF Editor.bat`**. It starts a
+tiny local server (`windows/server.ps1`) and opens http://localhost:5199. Close the window to stop.
+
+### Checks (same as CI)
+
+```bash
+npm run lint
+npm run typecheck
+npm test          # unit tests: PDF engine + lock
+npm run build
+npm run test:e2e  # Playwright: editing, batch apply, downloads, password + real voice unlock
 ```
 
 Build for production:
@@ -48,5 +72,6 @@ npm run preview  # serve the production build locally
   text at the same coordinates in every file
 - [JSZip](https://stuk.github.io/jszip/) bundles results for download
 - UI: React + Tailwind + shadcn/ui; templates persist in `localStorage`
+- pdf.js **legacy** build is used so previews work on older Chrome/Edge too
 
 Sample PDFs are included (`sample-*.pdf`) to try the workflow immediately.

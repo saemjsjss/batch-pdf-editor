@@ -1,0 +1,73 @@
+import { describe, expect, it } from 'vitest'
+import { createLock, normalizePhrase, validatePhrase, LOCK_KEY, MAX_FAILS, type StorageLike } from '../../src/lib/lock'
+
+function memStore(): StorageLike & { data: Map<string, string> } {
+  const data = new Map<string, string>()
+  return {
+    data,
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => void data.set(k, v),
+    removeItem: (k) => void data.delete(k),
+  }
+}
+
+describe('lock', () => {
+  it('is open until a password is set', async () => {
+    const lock = createLock(memStore())
+    expect(lock.status()).toEqual({ enabled: false, voice: false })
+    expect(await lock.verifyPassword('anything')).toBe(true)
+  })
+
+  it('stores only a salted hash, never the password', async () => {
+    const store = memStore()
+    const lock = createLock(store)
+    await lock.setPassword('hangeul2026')
+    const raw = store.data.get(LOCK_KEY)!
+    expect(raw).not.toContain('hangeul2026')
+    expect(JSON.parse(raw).pw.salt).toBeTruthy()
+    expect(await lock.verifyPassword('hangeul2026')).toBe(true)
+    expect(await lock.verifyPassword('wrong')).toBe(false)
+  })
+
+  it('rejects short passwords and needs the current one to change/remove', async () => {
+    const lock = createLock(memStore())
+    await expect(lock.setPassword('abc')).rejects.toThrow(/at least/)
+    await lock.setPassword('first-pass')
+    await expect(lock.setPassword('second-pass', 'nope')).rejects.toThrow(/wrong/)
+    await lock.setPassword('second-pass', 'first-pass')
+    expect(await lock.verifyPassword('second-pass')).toBe(true)
+    await expect(lock.removeLock('first-pass')).rejects.toThrow()
+    await lock.removeLock('second-pass')
+    expect(lock.status().enabled).toBe(false)
+  })
+
+  it('cools down after repeated wrong attempts, and the cooldown expires', async () => {
+    let t = 1_000_000
+    const lock = createLock(memStore(), () => t)
+    await lock.setPassword('correct-horse')
+    for (let i = 0; i < MAX_FAILS; i++) expect(await lock.verifyPassword('bad')).toBe(false)
+    await expect(lock.verifyPassword('correct-horse')).rejects.toThrow(/Too many/)
+    t += 31_000
+    expect(await lock.verifyPassword('correct-horse')).toBe(true)
+  })
+
+  it('voice phrase: normalised, needs password to set, matches inside a longer transcript', async () => {
+    const lock = createLock(memStore())
+    await lock.setPassword('admin-pass')
+    await expect(lock.setVoicePhrase('pink lotus morning', 'bad')).rejects.toThrow()
+    await lock.setVoicePhrase('Pink Lotus, morning!', 'admin-pass')
+    expect(lock.status().voice).toBe(true)
+    expect(await lock.verifyVoice('pink lotus morning')).toBe(true)
+    expect(await lock.verifyVoice('the pink lotus morning')).toBe(true)
+    expect(await lock.verifyVoice('pink lotus evening')).toBe(false)
+    await lock.clearVoicePhrase('admin-pass')
+    expect(await lock.verifyVoice('pink lotus morning')).toBe(false)
+  })
+
+  it('validates phrases', () => {
+    expect(normalizePhrase('  Hello,   World! ')).toBe('hello world')
+    expect(validatePhrase('open')).toMatch(/2 words/)
+    expect(validatePhrase('합격 증명서 입니다')).toMatch(/English/)
+    expect(validatePhrase('pink lotus morning')).toBeNull()
+  })
+})
