@@ -48,6 +48,6 @@ while ($listener.IsListening) {
       $b = [IO.File]::ReadAllBytes($full)
     }
     $res.ContentLength64 = $b.Length
-    $res.OutputStream.Write($b, 0, $b.Length)
+    if ($ctx.Request.HttpMethod -ne 'HEAD') { $res.OutputStream.Write($b, 0, $b.Length) }
   } catch { } finally { try { $res.OutputStream.Close() } catch { } }
 }
