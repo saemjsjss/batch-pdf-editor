@@ -572,7 +572,7 @@ export default function Home() {
           <FileCheck2 className="h-5 w-5" />
         </div>
         <div>
-          <h1>Batch PDF Editor</h1>
+          <h1>Bismillah PDF Editor</h1>
           <p>Edit once, apply to every PDF. Everything stays in your browser.</p>
         </div>
         <div className="pk-steps">
@@ -1324,6 +1324,13 @@ export default function Home() {
           )}
         </aside>
       </div>
+
+      <footer className="pk-credit" data-testid="credit">
+        <span>
+          Created by <b>SAEMUR RAHMAN</b> — dedicated with personal time and money.
+        </span>
+        <span className="pk-credit-sub">Bismillah PDF Editor · Everything runs on this PC</span>
+      </footer>
 
       <UnlockDialog
         open={showUnlock}

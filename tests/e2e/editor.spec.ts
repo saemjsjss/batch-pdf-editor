@@ -9,7 +9,9 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('loads, accepts a batch and flags layout differences', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Batch PDF Editor' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Bismillah PDF Editor' })).toBeVisible()
+  await expect(page.getByTestId('credit')).toContainText('Created by SAEMUR RAHMAN')
+  await expect(page).toHaveTitle('Bismillah PDF Editor')
   await upload(page)
   await expect(page.locator('.pk-file')).toHaveCount(3)
   await expect(page.getByText(/different layout/)).toBeVisible()

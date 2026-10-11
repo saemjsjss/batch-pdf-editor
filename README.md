@@ -1,4 +1,4 @@
-# Batch PDF Editor
+# Bismillah PDF Editor
 
 Mark edits **once** on a template PDF, apply them at the same position across dozens of similar
 PDFs (acceptance letters, invoices, certificates — anything where only the numbers/names change),
@@ -46,7 +46,7 @@ npm run dev               # http://localhost:3000
 
 ### Run on a Windows PC without Node
 
-Copy the folder (with a built `dist/`), then double-click **`Start Batch PDF Editor.bat`**. It starts a
+Copy the folder (with a built `dist/`), then double-click **`Start Bismillah PDF Editor.bat`**. It starts a
 tiny local server (`windows/server.ps1`) and opens http://localhost:5199. Close the window to stop.
 
 ### Checks (same as CI)

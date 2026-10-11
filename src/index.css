@@ -576,3 +576,24 @@ body {
 .pk-mini-btn:hover {
   background: var(--pk-accent);
 }
+
+.pk-credit {
+  margin: 8px 28px 24px;
+  padding: 14px 20px;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #f9c5da 0%, #f3d1f0 55%, #e4d6fa 100%);
+  color: var(--pk-heading);
+  font-size: 13.5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+.pk-credit b {
+  letter-spacing: 0.04em;
+}
+.pk-credit-sub {
+  font-size: 12px;
+  color: #7a4d68;
+}

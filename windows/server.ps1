@@ -1,4 +1,4 @@
-# Batch PDF Editor - tiny local web server (no install needed).
+# Bismillah PDF Editor - tiny local web server (no install needed).
 # Serves the built app from ..\dist on http://localhost:5199 and opens your browser.
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\dist'))
@@ -26,7 +26,7 @@ $mime = @{
 }
 
 Write-Host ''
-Write-Host '  Batch PDF Editor is running' -ForegroundColor Magenta
+Write-Host '  Bismillah PDF Editor is running' -ForegroundColor Magenta
 Write-Host "  Open: $url"
 Write-Host '  Keep this window open while you work. Close it to stop the app.'
 Write-Host ''
