@@ -35,3 +35,6 @@ release/
 
 # staff edition build
 dist-staff/
+
+# staff installer copy
+*.exe
